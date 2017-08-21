@@ -1,0 +1,266 @@
+#!/usr/bin/env python
+# Copyright (c) 2015, Hang Dai <hang.dai@bcm.edu>, Gao Wang <wangow@gmail.com>
+
+import argparse 
+import os
+import textwrap
+import VMT.Pipeline
+
+
+class Args:
+	def __init__(self):
+		self.parser = argparse.ArgumentParser(
+		prog = 'vmt',
+		add_help = True,
+		formatter_class=argparse.RawDescriptionHelpFormatter,
+		description = """A Mendelian diseases causal variants identification tool for next-generation sequencing data.\n""",
+		epilog = textwrap.dedent("""\
+				Use 'vmt subcommand -h' for details about each command.
+				Copyright (c) 2015 Hang Dai <hang.dai@bcm.edu>, Gao Wang <wangow@gmail.com>, Di Zhang <di.zhang@bcm.edu>
+				Home page: www.statgen.us/VMT/view"""))
+		self.parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.0a for Python 2.7 :: Anaconda 2.2')
+		self.subparsers = self.parser.add_subparsers(title='subcommands')
+		self.getInitArguments(self.parser)
+		self.getImportArguments(self.parser)
+		self.getAnnotateArguments(self.parser)
+		self.getFilterArguments(self.parser)
+		self.getChooseArguments(self.parser)
+		self.getOutputArguments(self.parser)
+		self.getShowArguments(self.parser)
+		self.getRemoveArguments(self.parser)
+		self.getCompareArguments(self.parser)
+
+
+	def get(self):
+		return self.parser.parse_args()
+
+	def getInitArguments(self, parser):
+		parser_init=self.subparsers.add_parser('init',
+		                 help="""Create a new project""",
+		                 description="""Create a new project in the current directory. If another project already exists in this directory, that project will be overwritten.""")
+		parser_init.add_argument('proj', metavar = "project", type = str,
+						   help='''Project name. This will create a new *.proj file under the current directory. Only one project is allowed in a directory.''')
+		parser_init.set_defaults(func=VMT.Pipeline.init)
+
+	def getImportArguments(self, parser):
+		parser_import=self.subparsers.add_parser('import',
+		                   help="""Import variants and sample genotype from vcf files.""",
+		                   description="""Import variants and sample genotype from vcf files. Import sample information. 
+		                                  VMT also automatically annotate variants using ANNOVAR, refGene, dbNSFP and ExAC.""")
+		parser_import.add_argument('vcf', metavar = "vcf_files", nargs='+', help='''A list of vcf files to be imported. Gzipped files are acceptable.''')
+		parser_import.add_argument('--format', metavar='format_file', help='''Format of input vcf file. If unspecified, the default vcf.fmt will be used.''')
+		parser_import.add_argument('--build', metavar='build', default='hg19', help='''Reference genome build version. If unspecified, the default version hg19 will be used.''')
+		parser_import.add_argument('--sample_info', metavar='sample_information_file', required=True, 
+		                           help="""Tab or space delimited file containing sample information. This is required for VMT. 
+		                           The first column must be 'sample_name', with sample names in the vcf file.
+		                           The file must contain another three columns: 'family_id', with the family ID of each sample; 'affection_status', either 2 (affected) or 1 (unaffected); 
+		                           'unaffected_parental_genotypes', either 'yes', such as that in a nuclear family with genotypes available for unaffected parents and affected child (children), or 'no'. 
+		                           The file may contain other information, such as phenotype information for samples.""")
+		parser_import.set_defaults(func=VMT.Pipeline.import_data)
+		
+	def getAnnotateArguments(self, parser):
+		parser_annotate=self.subparsers.add_parser('annotate',
+		                     help="""Download or build an annotation database and use it.""",
+		                     description="""Download an annotation database, or build it from source file; then link it to the project.""")
+		group=parser_annotate.add_mutually_exclusive_group()
+		group.add_argument('--database', metavar='database', type=str, 
+		                  help="""Use an annotation database (*.DB or *.DB.gz) if available. 
+		                  If the database is not available, download or build the database if a description file (*.ann) is available. 
+		                  If the description file is not available, download a description file and the corresponding database. 
+		                  If the corresponding database still cannot be downloaded, try to download the source file and build the database. 
+		                  For available database, use 'vmt show annotations' for details. 
+		                  This argument is mutually exclusive with '--source'.""")
+		group.add_argument('--source', metavar='source_files', nargs='+', default=[], 
+		                  help="""A list of source files to be used to build a local annotation database. 
+		                  This argument must be used in combination with '--format' argument, which specifying the description file (*.ann). 
+		                  If specified, local annotation database will be compiled from these source files and used. 
+		                  This argument is mutually exclusive with '--database'.""")
+		parser_annotate.add_argument('--format', metavar='description_file', type=str, 
+		                            help="""Description file (*.ann). 
+		                            This argument must be used in combination with '--source' argument, 
+		                            which specifying a list of source files to be used to build a local annotation database.""")
+		parser_annotate.add_argument('--linked_by', metavar='fields', nargs='+', default=[], 
+		                            help="""A list of fields that are used to link the annotation database to tables in the existing project. 
+		                            This parameter is required only for 'field' type of annotation databases linking to fields of existing tables.""")
+		parser_annotate.add_argument('--vmt_annotation', action='store_true', 
+		                            help="""Annotate variants using VMT annotation if the option string '--vmt_annotation' is present. 
+		                            A field 'VMT_annotation' will be added. 
+		                            For non-synonymous and splice-site SNVs, 'VMT_annotation' will be 'damaging_SNV' if 20 percent of available prediction algorithms among 9 prediction algorithms 
+		                            (SIFT, Polyphen2, LRT, MutationTaster, MutationAssessor, FATHMM, MetaLR, MetaSVM, PROVEAN) consider the SNV as damaging; 
+		                            for INDELs, 'VMT_annotation' will be 'damaging_by_MT' if MutationTaster considers it as damaging or "nondamaging_by_MT" if MutationTaster considers it as non-damaging. 
+		                            In order to let VMT annotate INDELs, first a vcf file with name 'indel.vcf' in the project directory should be uploaded to 
+		                            MutationTaster QueryEngine <http://www.mutationtaster.org/StartQueryEngine.html>; 
+		                            then follow the steps instructed by MutationTaster and download the '*.zip' file; 
+		                            finally retrieve the '*.tsv' file in the '*.zip' file and rename it to 'indel.tsv' and put it into the project directory. 
+		                            If no file with name 'indel.tsv' is provided, or the file with name 'indel.tsv' is not downloaded from MutationTaster, 
+		                            then the INDELs will not be annotated by VMT annotation.""")
+		parser_annotate.set_defaults(func=VMT.Pipeline.annotate)
+		
+	def getFilterArguments(self, parser):
+		parser_filter=self.subparsers.add_parser('filter',
+		                   help="""Filter selected variants according to specified conditions and save to a table.""",
+		                   description="""Filter selected variants according to specified conditions: 
+		                               properties (variant and annotation fields) and membership (samples) of variants. 
+		                               Conditions are arbitrary SQL expressions that involves fields in the project. 
+		                               Please refer <http://www.sqlite.org/lang_expr.html> for syntax.""")
+		parser_filter.add_argument('from_table', metavar='table', type=str, 
+		                          help="""Select a variant table.""")
+		parser_filter.add_argument('--to_table', required=True, metavar='table', type=str, 
+		                          help="""Save to a variant table.""")
+		annotation_condition=parser_filter.add_argument_group('According to properties', 
+		                                   description="""Filter variants according to annotation fields. 
+		                                   For available fields to use, type 'vmt show fields'.""")
+		annotation_condition.add_argument('--pop_maf', metavar='conditions', type=str, nargs='?', 
+		                                 #if user type '--pop_maf' but not followed by a command-line argument, use default ExAC all populations MAF<=0.001
+		                                 const="(ExAC.all_maf<=0.005 or ExAC.all_maf is null) and (ExAC.afr_maf<=0.005 or ExAC.afr_maf is null) and (ExAC.amr_maf<=0.005 or ExAC.amr_maf is null) and (ExAC.eas_maf<=0.005 or ExAC.eas_maf is null) and (ExAC.fin_maf<=0.005 or ExAC.fin_maf is null) and (ExAC.nfe_maf<=0.005 or ExAC.nfe_maf is null) and (ExAC.sas_maf<=0.005 or ExAC.sas_maf is null)",
+		                                 help="""Filter variants according to population MAF, such as that in 1000G, ESP and ExAC. 
+		                                 If the option string '--pop_maf' is present but not followed by a command line argument, 
+		                                 the default threshold of ExAC MAF<=0.001 in all populations will be used.""")
+		annotation_condition.add_argument('--pos', metavar='conditions', type=str, nargs='?', 
+		                                 help="""Filter variants according to position. 
+		                                 This is often useful when disease loci were identified by linkage analysis and homozygosity mapping.""")
+		annotation_condition.add_argument('--damaging', metavar='conditions', type=str, nargs='?',
+		                                 #if user type '--damaging' but not followed by a command-line argument, use default VMT_annotation is damaging and CADD>=10
+		                                 const="(vmt_annotation='damaging_SNV' and dbNSFP.CADD_phred>=10) or vmt_annotation='damaging_by_MT'", 
+		                                 help="""Filter variants according to bioinformatics tools. 
+		                                 If the option string '--damaging' is present but not followed by a command line argument, 
+		                                 the default setting, damaging considered by VMT_annotation and CADD PHRED>=10, will be used.
+		                                 Under such circumstances, the variants must already be annotated by VMT_annotation. 
+		                                 If not, use 'vmt annotate --vmt_annotation' to annotate. 
+		                                 Use 'vmt annotate -h' for details of VMT_annotation.""")
+		annotation_condition.add_argument('--other', metavar='conditions', type=str, nargs='?', 
+		                                 help="""Filter variants according to other conditions.""")
+		annotation_condition.add_argument('--filter_pass', action='store_true', 
+		                                 help="""Filter variants according to 'FILTER' column in vcf file. 
+		                                 If the option string '--filter_pass' is present, 
+		                                 then variants that do not pass filter will be filtered out.""")
+		sample_condition=parser_filter.add_argument_group('According to membership', 
+		                               description="""Select variants according to sample genotypes. 
+		                               For available fields to use, type 'vmt show samples'.""")
+		sample_condition.add_argument('--samples', metavar='conditions', type=str, nargs='?', 
+		                             help="""Only variants based on certain sample genotypes will be select.""")
+		parser_filter.set_defaults(func=VMT.Pipeline.filtering)
+						   
+	def getChooseArguments(self, parser):
+		parser_choose=self.subparsers.add_parser('choose', 
+		                              help="""Choose possible causal variants according to certain MOI.""", 
+		                              description="""Choose possible causal variants for families according to MOI specified by users, 
+		                              also output variants.""") 
+		parser_choose.add_argument('from_table', metavar='table', type=str, 
+		                          help="""Select a variant table where possible causal variants will be chosen from.""")
+		parser_choose.add_argument('--family_id', metavar='file', required=True, 
+		                          help="""File containing ID of families to be analyzed. 
+		                          The file has no header, each line can only contain the family_id.""")
+		parser_choose.add_argument('--moi', required=True, 
+		                          help="""Mode of inheritance. Can be chosen from 'AD', 'AD_phenocopy_', 'AR' and 'De_Novo'.""")
+		parser_choose.add_argument('--multihit', action='store_true', 
+		                          help="""If the option string '--multihit' is present, 
+		                          a 'candidate_genes.tsv' file will be generated, 
+		                          showing the number of times a gene were 'hit', 
+		                          that is, in how many families the variants were identified according to certain MOI in a gene. 
+		                          The file also shows the families in which the gene were 'hit'. 
+		                          This is useful when multiple families with same or similar phenotypes were analyzed at a time, 
+		                          or when the disease has low genetic heterogeneity.""")  
+		parser_choose.set_defaults(func=VMT.Pipeline.choose)
+		
+	def getOutputArguments(self, parser):
+		parser_output=self.subparsers.add_parser('output', 
+		                   help="""Output variants and annotation fields.""", 
+		                   description="""Output variants and annotation fields in specified format.""")
+		parser_output.add_argument('from_table', metavar='table', type=str, help="""Output variants in selected table.""")
+		parser_output.add_argument('--header', nargs='+', default=[], metavar='header', 
+		                          help="""A complete header or a list of names that will be joined by a delimiter specified by '--delimiter'. 
+		                          If unspecified, a default header will be derived from field names.""")
+		parser_output.add_argument('--fields', nargs='+', required=True, metavar='fields', 
+		                          help="""A list of fields that will be outputted.""")
+		parser_output.add_argument('--group_by', nargs='+', metavar='fields', 
+		                          help="""SQL aggregating functions <http://www.sqlite.org/lang_aggfunc.html> can be used to output summary statistics of fields. 
+		                          For example, you can use function count(*) to count the number of records, 
+		                          These operations can be applied to groups of variants defined by option --group_by. 
+		                          e.g. "vmt output variant --fields chr 'count()' --group_by chr" shows how many variants are there on each chromosome. 
+		                          e.g. "vmt output variant --fields refGene.name2 'count()' --group_by refGene.name2" shows how many variants are there in each gene.""")
+		parser_output.add_argument('--delimiter', default = '\t', metavar='delimiter', 
+		                          help="""Delimiter use to separate columns of output. 
+		                          Default is '\\t', for a csv output, use ','""")
+		parser_output.add_argument('--order_by', nargs='+', metavar='fields',
+		                          help="""Order output by specified fields in ascending order, 
+                                  or descending order if field name is followed by DESC (e.g. --order_by 'pos DESC').""")
+		parser_output.set_defaults(func=VMT.Pipeline.output)
+		
+	def getShowArguments(self, parser):
+		parser_show=self.subparsers.add_parser('show', 
+		                   help="""Display content of a project.""", 
+		                   description="""Output information of all system and project related items, 
+		                   such as tables, samples, phenotypes, annotation databases and fields.""")
+		parser_show.add_argument('type', choices=['project', 'tables', 'table', 'samples', 'fields', 'annotations', 'annotation', 'phenotypes', 'formats', 'format'], type=str, 
+		                        help="""Type of information to display, 
+		                        which can be 'project' for summary of a project, 
+		                        'tables' for all variant tables, 
+		                        'table TBL' for details of a specific table TBL, 
+		                        'samples [COND]' for sample name, files from which samples are imported, and associated phenotypes of all or selected samples, 
+                                'fields' for fields from variant tables and all used annotation databases, 
+		                        'annotations' for a list of all available annotation databases, 
+		                        'annotation ANN' for details about annotation database ANN, 
+		                        'phenotypes [P1 P2...]' for all or specified phenotypes of samples, 
+                                'formats' for all supported import and export formats,
+                                'format FMT' for details of format FMT.""")
+		parser_show.add_argument('--item', nargs='+', default=[], metavar='items', 
+		                        help="""Items to display, which can be, for example, name of table for type 'table' ('vmt show table --item variant'), 
+		                        conditions to select samples for type 'samples' ('vmt show samples --item "family_id='family_1'"'), 
+		                        name of an annotation database for type 'annotation' ('vmt show annotation --item dbNSFP'), 
+		                        a list of phenotypes for type 'phenotypes' ('vmt show phenotypes --item family_id'), 
+		                        name of a format for type 'format' ('vmt show format --item vcf').""")
+		parser_show.set_defaults(func=VMT.Pipeline.show)
+		
+	def getRemoveArguments(self, parser):
+		parser_remove=self.subparsers.add_parser('remove', 
+		                   help="""Remove content of a project.""", 
+		                   description="""Remove from the current project various items 
+		                   such as variants genotypes, and annotation fields.""")
+		parser_remove.add_argument('type', type=str, choices=['tables', 'fields', 'annotations'], 
+		                          help="""Type of items to be removed.""")
+		parser_remove.add_argument('--item', nargs='+', default=[], metavar='items', 
+		                          help="""Items to be removed, which should be, 
+		                          for 'tables' names of one or more variant tables, 
+		                          for 'fields' name of fields to be removed,
+                                  for 'annotations' names of annotation databases. 
+                                  Removal of annotation databases will stop using these databases in the project, but will not delete them from disk.""")
+		parser_remove.set_defaults(func=VMT.Pipeline.remove)
+		
+	def getCompareArguments(self, parser):
+		parser_compare=self.subparsers.add_parser('compare', 
+		                   help="""Compare variants in variant tables.""", 
+		                   description="""Get the difference, intersection and union of variant tables.""")
+		parser_compare.add_argument('tables', metavar='tables', nargs='+', 
+		                           help="""Variant tables to compare. 
+		                           Wildcard characters * and ? can be used to specify multiple tables.""")
+		parser_compare.add_argument('--union', metavar='table', nargs='+', 
+		                           help="""Save variants with TYPE to a table with name specified here, 
+		                           in the TYPE of any of the tables (T1 | T2 | T3 ...). 
+		                           An optional message can be added to describe the table. 
+		                           (e.g. vmt compare table1 table2 table3 --union table4 'variants in any of table1, table2 and table3')""")
+		parser_compare.add_argument('--intersection', metavar='table', nargs='+', 
+		                           help="""Save variants with TYPE to a table with name specified here, 
+		                           in the TYPE of all the tables (T1 & T2 & T3 ...). 
+		                           An optional message can be added to describe the table. 
+		                           (e.g. vmt compare table1 table2 table3 --intersection table4 'variants in all of table1, table2 and table3')""")
+		parser_compare.add_argument('--difference', metavar='table', nargs='+', 
+		                           help="""Save variants with TYPE to a table with name specified here, 
+		                           in the TYPE of the first, but not in the TYPE of others (T1 - T2 - T3...). 
+		                           An optional message can be added to describe the table. 
+		                           (e.g. vmt compare table1 table2 table3 --difference table4 'variants in table1 but not in table2 or table3')""")
+		parser_compare.add_argument('--expression', metavar='expression', nargs='+', 
+		                           help="""Evaluate a set expression with table names. 
+		                           Operators | (or), & (and), - (difference) and ^ (A or B but not both) are allowed. 
+		                           The variants will be saved to a table with name assigned before the expression. 
+		                           (e.g. --expression 'E=(A|D)-(B&C)'). 
+		                           This is commonly useful when complex comparisons between tables are needed.""")
+		parser_compare.set_defaults(func=VMT.Pipeline.compare)
+		
+if __name__ == '__main__':
+	try:
+		args = Args().get()
+		args.func(args)
+	except Exception as e:
+		raise
+		env.error("{}".format(e))

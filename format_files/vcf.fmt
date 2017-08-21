@@ -1,0 +1,314 @@
+#Copyright (C) 2015 Hang Dai (hang.dai@bcm.edu) 
+#Distributed under GPL. see <http://www.gnu.org/licenses/>
+#Please refer @@to http://varianttools.sourceforge.net/Format/New@@ for a description of the format of this file.
+
+[format description]
+description=Import vcf
+variant=chr,%(pos)s,%(ref)s,%(alt)s
+genotype=%(geno)s
+variant_info=%(var_info)s
+genotype_info=%(geno_info)s
+#variants with identical chr,pos,ref will be collapsed.
+export_by=chr,%(pos)s,%(ref)s,%(alt)s
+
+[DEFAULT]
+format_string=
+format_string_comment=FORMAT string that is outputted in the 9th column of exported vcf file. Please specified an appropriate value corresponding to the parameter --geno_info because this column cannot be automatically determined.
+
+geno_info=AD,GD,GQ,PL
+geno_info_comment=Genotype information fields. No genotype field is imported by default. You may edit it into, for example, "geno_info=GD,GQ,PL", if the .vcf format field looks like "GT:GD:GQ:PL". Please check the FORMAT string of your .vcf file to determine available fields to be imported.
+
+geno=GT
+geno_comment=Field to extract genotype from .vcf file. You can set it to safe_GT if genotype is not the first field in the genotype columns of your .vcf file.
+
+var_info=raw_pos,raw_ref,raw_alt,id,qual,filter
+var_info_comment=Variant information fields to be imported. Please check the INFO column of your vcf file for available fields.
+
+phase_sep='/'
+phase_sep_comment=Seperator used to output genotype, / for unphased and | for phased. This parameter is needed because 'vtools import' does not save phase information for each genotype.
+
+wildtype_code=('0',)
+wildtype_code_comment=How wildtype homozygotes are imported. These genotypes are by default imported as GT=0. They will be discarded if you set this parameter to None.
+
+id=variant.id
+id_comment=The field to output to the third (ID) column of the vcf file. You can use a id field (if you imported or updated it from a vcf file), another ID field (e.g. rsname) if available, or '' to output all missing values.
+
+pos=raw_pos
+pos_comment=Field for position. To export indel, set it to 'pos-length(upstream)'
+
+ref=raw_ref
+ref_comment=Field for reference allele
+
+alt=raw_alt
+alt_comment=Field for alternative allele
+
+qual=qual
+qual_comment=Field for quality score
+
+filter=variant.filter
+filter_comment=Field for filter status
+
+info=info
+info_comment=Field for info status
+
+[field formatter]
+#NOTE: if multiple records are collapsed, they are passed as tuples.
+#If no formatter is defined, the first value will be used in output.
+
+fmt_GT=GenoFormatter(style='vcf')
+fmt_DP=IfMulti(Formatter('DP={[0]}'), Formatter('DP={}'))
+#if there are multiple alternative alleles, join them by ','
+#not sure if we need to keep both JoinRecords and JoinFields
+fmt_alt=JoinRecords(',')
+fmt_raw_alt=JoinRecords(',')
+
+[col_1]
+field=vcf_variant(chr, pos, ref, alt, %(id)s)
+comment=variants in vcf format
+
+[col_2]
+field=
+adj=ValueOfNull('.')
+comment=quality
+
+[col_3]
+field=%(filter)s
+adj=ValueOfNull('PASS')
+comment=filter
+
+[col_4]
+field=
+adj=ValueOfNull('.'), JoinFields(';')
+comment=variant info
+
+[col_5]
+field=
+adj=Constant("%(format_string)s")
+comment=genotype format
+
+[col_6]
+field=
+adj=JoinFields(':')
+comment=genotype
+
+
+[chr]
+index=1
+type=VARCHAR(20)
+adj=RemoveLeading('chr')
+comment=Chromosome
+
+[pos]
+index=2
+type=INTEGER NOT NULL
+comment=1-based position
+
+[raw_pos]
+index=2
+type=INTEGER
+comment=1-based position
+
+[id]
+index=3
+type=VARCHAR(48)
+adj=Nullify('.')
+comment=variant id (rs number or other IDs)
+
+[ref]
+index=4
+type=VARCHAR(255)
+comment=Reference allele, '-' for insertion.
+
+[alt]
+index=5
+adj=CheckSplit()
+type=VARCHAR(255)
+comment=Alternative allele, '-' for deletion.
+
+[raw_ref]
+index=4
+type=VARCHAR(255)
+comment=Reference allele, without remove common leading and ending nucleotide.
+
+[raw_alt]
+index=5
+adj=CheckSplit()
+type=VARCHAR(255)
+comment=Alternative allele, without remove common leading and ending nucleotide.
+
+[upstream]
+index=4,5
+adj=CommonLeading()
+type=VARCHAR(255)
+comment=Common leading alleles of ref and alt alleles stored in .vcf file. This field is only available for indels.
+
+[downstream]
+index=4,5
+adj=CommonEnding()
+type=VARCHAR(255)
+comment=Common ending alleles of ref and alt alleles stored in .vcf file, common leading is extracted before common ending. This field is only available for indels.
+
+[qual]
+index=6
+type=FLOAT
+comment=phred-scaled quality score for the assertion made in ALT. High QUAL scores indicate high confidence calls.
+
+[filter]
+index=7
+type=VARCHAR(255)
+comment=PASS if this position has passed all filters, i.e. a call is made at this position. Otherwise, if the site has not passed all filters, a semicolon-separated list of codes for filters that fail. ABFilter,Description="AB > 0.75"; HRunFilter,Description="HRun > 5.0"; QDFilter,Description="QD < 5.0"; QUALFilter,Description="QUAL < 30.0"; SBFilter,Description="SB > -0.10"; SnpCluster,Description="SNPs found in clusters"
+
+[info]
+index=8
+type=VARCHAR(255)
+comment=Raw INFO column in the vcf file. This may be further splitted into various specified info fields, such as DP, etc.
+
+#[AB]
+#index=8
+#type=FLOAT
+#adj=ExtractValue('AB=',';'),Nullify('.')
+#comment=Allele Balance for hets (ref/(ref+alt))
+
+#[AC]
+#index=8
+#type=INTEGER
+#adj=ExtractValue('AC=',';'),Nullify('.')
+#comment=Allele count in genotypes, for each ALT allele, in the same order as listed
+
+#[AF]
+#index=8
+#type=FLOAT
+#adj=ExtractValue('AF=',';'),Nullify('.')
+#comment=Allele Frequency, for each ALT allele, in the same order as listed
+
+#[AN]
+#index=8
+#type=INTEGER
+#adj=ExtractValue('AN=',';'),Nullify('.')
+#comment=Total number of alleles in called genotypes
+
+#[BaseQRankSum]
+#index=8
+#type=FLOAT
+#adj=ExtractValue('BaseQRankSum=',';'),Nullify('.')
+#comment=Z-score from Wilcoxon rank sum test of Alt Vs. Ref base qualities
+
+#[DB]
+#index=8
+#type=INTEGER
+#adj=ExtractFlag('DB',';')
+#comment=dbSNP Membership? 1 if true, 0 if false
+
+#[DP]
+#index=8
+#type=INTEGER
+#adj=ExtractValue('DP=',';'),Nullify('.')
+#comment=Filtered Depth
+
+#[DS]
+#index=8
+#type=INTEGER
+#adj=ExtractFlag('DS',';')
+#comment=Were any of the samples downsampled? 1 if true, 0 if false
+
+#[Dels]
+#index=8
+#type=FLOAT
+#adj=ExtractValue('Dels=',';'),Nullify('.')
+#comment=Fraction of Reads Containing Spanning Deletions
+
+#[FS]
+#index=8
+#type=FLOAT
+#adj=ExtractValue('FS=',';'),Nullify('.')
+#comment=Phred-scaled p-value using Fisher's exact test to detect strand bias
+
+#[HRun]
+#index=8
+#type=INTEGER
+#adj=ExtractValue('HRun=',';'),Nullify('.')
+#comment=Largest Contiguous Homopolymer Run of Variant Allele In Either Direction
+
+#[HaplotypeScore]
+#index=8
+#type=FLOAT
+#adj=ExtractValue('HaplotypeScore=',';'),Nullify('.')
+#comment=Consistency of the site with at most two segregating haplotypes
+
+#[InbreedingCoeff]
+#index=8
+#type=FLOAT
+#adj=ExtractValue('InbreedingCoeff=',';'),Nullify('.')
+#comment=Inbreeding coefficient as estimated from the genotype likelihoods per-sample when compared against the Hardy-Weinberg expectation
+
+#[MQ]
+#index=8
+#type=FLOAT
+#adj=ExtractValue('MQ=',';'),Nullify('.')
+#comment=Root Mean Squared Mapping Quality
+
+#[MQ0]
+#index=8
+#type=INTEGER
+#adj=ExtractValue('MQ0=',';'),Nullify('.')
+#comment=Total Mapping Quality Zero Reads
+
+#[MQRankSum]
+#index=8
+#type=FLOAT
+#adj=ExtractValue('MQRankSum=',';'),Nullify('.')
+#comment=Z-score From Wilcoxon rank sum test of Alt vs. Ref read mapping qualities
+
+[QD]
+index=8
+type=FLOAT
+adj=ExtractValue('QD=',';'),Nullify('.')
+comment=Variant Confidence/Quality by Depth
+
+#[ReadPosRankSum]
+#index=8
+#type=FLOAT
+#adj=ExtractValue('ReadPosRankSum=',';'),Nullify('.')
+#comment=Z-score from Wilcoxon rank sum test of Alt vs. Ref read position bias
+
+#[SB]
+#index=8
+#type=FLOAT
+#adj=ExtractValue('SB=',';'),Nullify('.')
+#comment=Strand Bias
+
+[FORMAT]
+index=9
+type=VARCHAR(255)
+comment=GT:AD:DP:GQ:PL
+
+[GT]
+index=10:
+type=INTEGER
+adj=ExtractField(1,':'),EncodeGenotype(default=%(wildtype_code)s)
+fmt=GenoFormatter(style='vcf')
+comment=Gentoype coded as 0 (ref ref), 1 (ref alt), 2 (alt alt) or -1 (alt1, alt2), assuming GT is the first FORMAT field in the .vcf file. Missing genotype will be dropped.
+
+[AD]
+index=9,10:
+adj=FieldFromFormat('AD',sep=':', default=None)
+type=VARCHAR(255)
+comment=Allelic depths for the ref and alt alleles in the order listed
+
+[GD]
+index=9,10:
+adj=FieldFromFormat('DP',sep=':', default=None)
+type=INTEGER
+comment=Read Depth (only filtered reads used for calling)
+
+[GQ]
+index=9,10:
+adj=FieldFromFormat('GQ',sep=':', default=None)
+type=FLOAT
+comment=Genotype Call Quality
+
+[PL]
+index=9,10:
+adj=FieldFromFormat('PL',sep=':', default=None)
+type=VARCHAR(255)
+comment=Normalized, Phred-scaled likelihoods for AA,AB,BB genotypes where A=ref and B=alt; if site is not biallelic, number of likelihoods if n*(n+1)/2

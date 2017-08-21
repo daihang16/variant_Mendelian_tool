@@ -1,0 +1,32 @@
+[format description]
+description=annotation by VMT, copyright by Hang Dai, Gao Tiger Wang, Regie Lyn Pastor Santos-Cortez and Suzanne Margaret Leal.
+variant=chr,pos,ref,alt
+variant_info=VMT_annotation, VMT_MutationTaster_pred
+
+[chr]
+index=1
+type=VARCHAR(20)
+
+[pos]
+index=2
+type=INTEGER NOT NULL
+
+[ref]
+index=3
+type=VARCHAR(20)
+
+[alt]
+index=4
+type=VARCHAR(20)
+
+[VMT_annotation]
+index=5
+type=VARCHAR(20)
+adj=Nullify('.')
+comment=For non-synonymous and splice-site SNVs, "damaging_SNV" if 20% of available prediction algorithms among 9 prediction algorithms (SIFT, Polyphen2, LRT, MutationTaster, MutationAssessor, FATHMM, MetaLR, MetaSVM, PROVEAN) consider the SNV as damaging; for INDELs, "damaging_by_MT" if MutationTaster considers it as damaging or "nondamaging_by_MT" if MutationTaster considers it as non-damaging.
+
+[VMT_MutationTaster_pred]
+index=6
+type=VARCHAR(20)
+adj=Nullify('.')
+comment=MutationTaster prediction, "A" ("disease_causing_automatic"),"D" ("disease_causing"), "N" ("polymorphism") or "P" ("polymorphism_automatic"). 
